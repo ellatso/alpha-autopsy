@@ -1,4 +1,4 @@
-# alpha-lens
+# alpha-autopsy/ alpha-lens
 
 > **The autopsy your backtest deserves before you deploy.**
 >
