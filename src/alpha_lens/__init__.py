@@ -19,6 +19,7 @@ Quick start::
 
 from __future__ import annotations
 
+from alpha_lens.analysis.reconciliation import reconcile
 from alpha_lens.core.config import (
     AutopsyConfig,
     CostConfig,
@@ -40,10 +41,12 @@ from alpha_lens.core.types import (
     ProductionReadinessScore,
     ReadinessComponent,
     ReadinessVerdict,
+    ReconciliationResult,
     RegimeAnalysis,
     RegimeLabel,
     RegimeMethod,
     RobustnessResults,
+    TimingVerdict,
     ValidationResults,
 )
 from alpha_lens.report.generator import autopsy
@@ -53,6 +56,9 @@ __version__ = "0.1.0"
 __all__ = [
     "__version__",
     "autopsy",
+    "reconcile",
+    "ReconciliationResult",
+    "TimingVerdict",
     "AutopsyReport",
     "ProductionReadinessScore",
     "ReadinessComponent",

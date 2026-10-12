@@ -423,3 +423,146 @@ class AutopsyReport(AlphaLensModel):
         from alpha_lens.report.html_report import render_html_report
 
         return render_html_report(self, path)
+
+
+# ----------------------------------------------------------------------------
+# Reconciliation protocol (forecast-driven allocation strategies)
+# ----------------------------------------------------------------------------
+
+
+class TimingVerdict(str, Enum):
+    """Verdict of the five-layer reconciliation protocol.
+
+    The protocol asks whether a dynamic allocation adds value *beyond its own
+    average exposure*. A strategy can beat a benchmark simply because its
+    average weights differ from the benchmark's; that is exposure, not timing.
+
+        TIMING_SUPPORTED:    timing interval above zero and every applicable
+                             layer passes (transitions, concentration).
+        TIMING_UNCONFIRMED:  timing interval above zero, but transition skill
+                             or robustness to influential periods fails.
+        EXPOSURE_NOT_TIMING: beats at least one benchmark with an interval
+                             above zero, but timing is not established.
+        NEGATIVE_TIMING:     timing interval below zero; the weight changes
+                             destroy value relative to the average allocation.
+        INCONCLUSIVE:        nothing is established either way.
+    """
+
+    TIMING_SUPPORTED = "timing_supported"
+    TIMING_UNCONFIRMED = "timing_unconfirmed"
+    EXPOSURE_NOT_TIMING = "exposure_not_timing"
+    NEGATIVE_TIMING = "negative_timing"
+    INCONCLUSIVE = "inconclusive"
+
+
+class TransitionLayer(AlphaLensModel):
+    """Layer 1: does aggregate accuracy survive state changes?"""
+
+    n_periods: int
+    n_transitions: int
+    overall_accuracy: float
+    persistent_accuracy: float | None
+    transition_accuracy: float | None
+    null_rate: float | None = Field(description="Conditional guess rate 1/(K-1) on transitions.")
+    p_value: float | None = Field(description="One-sided exact binomial p vs null_rate.")
+    passed: bool | None
+
+
+class BenchmarkComparison(AlphaLensModel):
+    """Layer 2: paired comparison with one benchmark (annualized, net of costs)."""
+
+    name: str
+    strategy_cagr: float
+    benchmark_cagr: float
+    active_mean: float
+    ci_low: float
+    ci_high: float
+    tracking_error: float
+    information_ratio: float
+
+
+class ExposureTimingLayer(AlphaLensModel):
+    """Layer 3: dynamic net return minus own mean-weight static net return."""
+
+    mean_weights: dict[str, float]
+    timing_mean: float
+    ci_low: float
+    ci_high: float
+    timing_ir: float
+    constant_policy: bool
+    timing_series: pd.Series
+
+
+class ConcentrationLayer(AlphaLensModel):
+    """Layer 4: does the result survive removing the k most favorable periods?"""
+
+    k: int
+    timing_mean_excluding_top_k: float
+    active_mean_excluding_top_k: float | None
+    top_timing_periods: list[str]
+
+
+class ResolutionLayer(AlphaLensModel):
+    """Layer 5: what effect size could this sample detect?"""
+
+    years: float
+    ir_min: float = Field(description="True IR needed for the stated power (iid approximation).")
+    mde_timing: float
+    mde_active: float | None
+    observed_timing_ir: float
+    underpowered: bool
+
+
+class ReconciliationResult(AlphaLensModel):
+    """Full output of :func:`alpha_lens.analysis.reconcile`."""
+
+    verdict: TimingVerdict
+    reasons: list[str]
+    transitions: TransitionLayer | None
+    benchmarks: list[BenchmarkComparison]
+    exposure_timing: ExposureTimingLayer
+    concentration: ConcentrationLayer
+    resolution: ResolutionLayer
+    settings: dict[str, Any]
+
+    def summary(self) -> str:
+        """Plain-text summary suitable for logs, notebooks or CI output."""
+        ppy = self.settings.get("periods_per_year", 252)
+        lines = [f"Verdict: {self.verdict.value.upper()}"]
+        lines += [f"  - {r}" for r in self.reasons]
+        lines.append("")
+        if self.transitions is not None:
+            t = self.transitions
+            ta = "n/a" if t.transition_accuracy is None else f"{t.transition_accuracy:.1%}"
+            pv = "n/a" if t.p_value is None else f"{t.p_value:.3f}"
+            lines.append(
+                f"[1] Transitions: {t.n_transitions}/{t.n_periods} periods; "
+                f"transition accuracy {ta} (p={pv} vs {t.null_rate})"
+            )
+        for b in self.benchmarks:
+            lines.append(
+                f"[2] vs {b.name}: active {b.active_mean:+.2%}/yr "
+                f"[{b.ci_low:+.2%}, {b.ci_high:+.2%}], IR {b.information_ratio:+.2f}"
+            )
+        e = self.exposure_timing
+        w = ", ".join(f"{k} {v:.0%}" for k, v in e.mean_weights.items())
+        lines.append(
+            f"[3] Timing vs own mean weights ({w}): {e.timing_mean:+.2%}/yr "
+            f"[{e.ci_low:+.2%}, {e.ci_high:+.2%}]"
+        )
+        c = self.concentration
+        lines.append(
+            f"[4] Timing excluding best {c.k} periods: {c.timing_mean_excluding_top_k:+.2%}/yr"
+        )
+        r = self.resolution
+        if e.constant_policy:
+            lines.append(f"[5] {r.years:.1f} years: constant allocation, no timing to resolve")
+        else:
+            lines.append(
+                f"[5] {r.years:.1f} years: detectable timing effect at 80% power ~ "
+                f"{r.mde_timing:.2%}/yr (IR {r.ir_min:.2f}); "
+                f"observed timing IR {r.observed_timing_ir:+.2f}"
+                + (" -> underpowered" if r.underpowered else "")
+            )
+        lines.append(f"(annualization: {ppy} periods per year)")
+        return "\n".join(lines)

@@ -11,6 +11,15 @@ from alpha_lens.analysis.overfitting import (
     minimum_backtest_length,
     probability_of_backtest_overfitting,
 )
+from alpha_lens.analysis.reconciliation import (
+    bootstrap_mean_ci,
+    circular_block_indices,
+    exposure_timing_series,
+    minimum_detectable_ir,
+    reconcile,
+    simulate_rebalanced_portfolio,
+    transition_accuracy,
+)
 from alpha_lens.analysis.regime import (
     analyze_regimes,
     detect_regimes_hmm,
@@ -87,4 +96,11 @@ __all__ = [
     "apply_cost",
     "find_breakeven_cost",
     "compute_readiness_score",
+    "reconcile",
+    "simulate_rebalanced_portfolio",
+    "exposure_timing_series",
+    "transition_accuracy",
+    "circular_block_indices",
+    "bootstrap_mean_ci",
+    "minimum_detectable_ir",
 ]
